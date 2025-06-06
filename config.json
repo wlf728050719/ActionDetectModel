@@ -1,25 +1,25 @@
 {
   "actions": [
     {
-      "action": "0",
+      "label": 0,
       "name": "eat",
       "video_folder": "train/eat",
       "data_folder": "csv/eat"
     },
     {
-      "action": "1",
+      "label": 1,
       "name": "clap",
       "video_folder": "train/clap",
       "data_folder": "csv/clap"
     },
     {
-      "action": "2",
+      "label": 2,
       "name": "jump",
       "video_folder": "train/jump",
       "data_folder": "csv/jump"
     },
     {
-      "action": "3",
+      "label": 3,
       "name": "swim",
       "video_folder": "train/swim",
       "data_folder": "csv/swim"

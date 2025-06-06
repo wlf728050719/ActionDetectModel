@@ -25,7 +25,7 @@ class Model(nn.Module):
             :math:`M_{in}` is the number of instance in a frame.
     """
 
-    def __init__(self, in_channels, num_class, graph_args,
+    def __init__(self, in_channels, embed_dim, graph_args,
                  edge_importance_weighting, **kwargs):
         super().__init__()
 
@@ -62,8 +62,15 @@ class Model(nn.Module):
         else:
             self.edge_importance = [1] * len(self.st_gcn_networks)
 
-        # fcn for prediction
-        self.fcn = nn.Conv2d(256, num_class, kernel_size=1)
+        # 移除最后的分类层，改为嵌入层
+        self.embed_layer = nn.Sequential(
+            nn.Conv2d(256, embed_dim, kernel_size=1),
+            nn.BatchNorm2d(embed_dim),
+            nn.ReLU(inplace=True)
+        )
+
+        # 添加全局平均池化后的L2归一化
+        self.pool = nn.AdaptiveAvgPool2d(1)
 
     def forward(self, x):
 
@@ -82,14 +89,14 @@ class Model(nn.Module):
 
         # global pooling
         x = F.avg_pool2d(x, x.size()[2:])
-        x = x.view(N, M, -1, 1, 1).mean(dim=1)
 
-        # prediction
-        x = self.fcn(x)
-        x = x.view(x.size(0), -1)
+        x = self.embed_layer(x)  # 嵌入变换
+        x = self.pool(x)  # 再次池化确保尺寸为1x1
+        x = x.view(x.size(0), -1)  # 展平
 
+        # L2归一化（重要！）
+        x = F.normalize(x, p=2, dim=1)
         return x
-
     def extract_feature(self, x):
 
         # data normalization
@@ -197,7 +204,7 @@ class st_gcn(nn.Module):
 
 if __name__ == '__main__':
     in_channels = 2  # (x,y)坐标
-    num_class = 5  # 假设有5种动作类别
+    embed_dim = 256
     graph_args = {
         'layout': 'yolopose',
         'strategy': 'spatial'
@@ -205,24 +212,12 @@ if __name__ == '__main__':
     edge_importance_weighting = True
 
     # 3. 初始化模型
-    model = Model(in_channels, num_class, graph_args, edge_importance_weighting)
+    model = Model(in_channels, embed_dim, graph_args, edge_importance_weighting)
 
     # 4. 生成模拟数据 (batch_size=3, 50帧, 17个关节)
     test_data = torch.randn(3, 2, 50, 17, 1)  # 形状: [3,2,50,17,1]
 
     # 5. 前向传播
-    output = model(test_data)  # 输出形状: [3,5]
+    output = model(test_data)
 
-    # 6. 获取预测结果
-    probs = F.softmax(output, dim=1)  # 概率分布
-    pred_labels = torch.argmax(output, dim=1)  # 预测标签
-
-    # 7. 打印结果
-    print("原始输出(未归一化):\n", output.detach().numpy())
-    print("\nSoftmax概率分布:\n", probs.detach().numpy())
-    print("\n预测标签:", pred_labels.numpy())
-
-    # 8. 模拟真实标签计算准确率
-    fake_targets = torch.tensor([0, 2, 4])  # 假设的真实标签
-    accuracy = (pred_labels == fake_targets).float().mean()
-    print(f"\n测试准确率: {accuracy.item():.1%}")
+    print(output.shape)# 输出形状: [3,256]
