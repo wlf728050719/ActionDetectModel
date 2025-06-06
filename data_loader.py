@@ -70,7 +70,7 @@ def get_dataloader(config_path, batch_size=32, shuffle=True, num_workers=4, test
 
     # 收集所有CSV文件和对应标签
     for action in config['actions']:
-        label = int(action['action'])
+        label = int(action['label'])
         data_folder = action['data_folder']
 
         if not os.path.exists(data_folder):
