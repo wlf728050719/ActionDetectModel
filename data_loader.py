@@ -28,7 +28,7 @@ def regular_collate_fn(batch):
 class SkeletonDataset(Dataset):
     """基础骨骼数据集，负责数据加载"""
 
-    def __init__(self, data_paths, labels, max_frames=50):
+    def __init__(self, data_paths, labels, max_frames):
         """
         骨骼动作识别基础数据集
 
@@ -56,7 +56,6 @@ class SkeletonDataset(Dataset):
         """加载单个样本的骨骼数据"""
         # 读取CSV文件
         df = pd.read_csv(csv_path)
-        num_frames = min(len(df), self.max_frames)
 
         # 提取x,y坐标 (忽略置信度)
         x_coords = df.filter(regex='kp_.*_x').values[:self.max_frames]
@@ -121,7 +120,7 @@ class TripletSkeletonDataset(Dataset):
         return (anchor_data, positive_data, negative_data), [anchor_label]
 
 
-def get_dataloader(config_path, batch_size=32, shuffle=True, num_workers=4, test_size=0.2, random_state=42):
+def get_dataloader(config_path,max_frames,batch_size=32, shuffle=True, num_workers=4, test_size=0.2, random_state=42):
     """
     获取三元组训练和验证数据加载器
 
@@ -165,8 +164,8 @@ def get_dataloader(config_path, batch_size=32, shuffle=True, num_workers=4, test
     )
 
     # 创建基础数据集
-    train_base_dataset = SkeletonDataset(train_paths, train_labels)
-    val_base_dataset = SkeletonDataset(val_paths, val_labels)
+    train_base_dataset = SkeletonDataset(train_paths, train_labels,max_frames)
+    val_base_dataset = SkeletonDataset(val_paths, val_labels,max_frames)
 
     # 创建三元组训练数据集
     train_dataset = TripletSkeletonDataset(train_base_dataset)
@@ -198,21 +197,21 @@ def get_dataloader(config_path, batch_size=32, shuffle=True, num_workers=4, test
 
 
 if __name__ == "__main__":
-    num_classes, train_loader, val_loader = get_dataloader('config.json')
+    num_classes, train_loader, val_loader = get_dataloader('config.json', 300)
 
     # 加载一组训练数据
     for batch_idx, ((anchors, positives, negatives), labels) in enumerate(train_loader):
         print(f"\n训练集 Batch {batch_idx}:")
-        print("Anchor形状:", anchors.shape)  # [batch_size, 2, 50, 17, 1]
-        print("Positive形状:", positives.shape)  # [batch_size, 2, 50, 17, 1]
+        print("Anchor形状:", anchors.shape)  # [batch_size, 2, max_frames, 17, 1]
+        print("Positive形状:", positives.shape)  # [batch_size, 2, max_frames, 17, 1]
         print("Negative形状:", negatives.shape)
-        print(labels)# [batch_size, 2, 50, 17, 1]
+        print(labels)# [batch_size, 2, max_frames, 17, 1]
         break
 
     # 加载一组验证数据
     for batch_idx, (data, labels) in enumerate(val_loader):
         print(f"\n验证集 Batch {batch_idx}:")
-        print("数据形状:", data.shape)  # [batch_size, 2, 50, 17, 1]
+        print("数据形状:", data.shape)  # [batch_size, 2, max_frames, 17, 1]
         print("标签形状:", labels.shape)  # [batch_size]
         print("标签示例:", labels[:5])  # 打印前5个标签
         break

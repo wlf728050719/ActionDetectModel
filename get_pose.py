@@ -1,11 +1,11 @@
-import os
-import json
 import time
 import numpy as np
 import cv2
 import onnxruntime
 import warnings
 import argparse
+import json
+import os
 
 warnings.filterwarnings("ignore")
 
@@ -225,12 +225,11 @@ def process_video(model_path, input_video_path, output_csv_path, output_video_pa
     if output_video_path:
         print(f"处理后的视频保存到: {output_video_path}")
 
-
 if __name__ == '__main__':
     # 根据config文件从video_folder的视频中提取对应行为的关节点信息并输出同名csv文件到data_folder中,设置output_video_dir后同步输出绘制关节点视频
     parser = argparse.ArgumentParser()
     parser.add_argument('--config_path',default='config.json',help='config file path')
-    parser.add_argument('--onnx_path',default='yolov5s6_pose.onnx',help='onnx file path')
+    parser.add_argument('--onnx_path',default=r'../yolov5s6_pose.onnx',help='onnx file path')
     parser.add_argument('--conf_threshold',default=0.3,type=float,help='confidence threshold')
     parser.add_argument('--output_video_dir',default=None,help='output video dir')
     args = parser.parse_args()
@@ -245,7 +244,7 @@ if __name__ == '__main__':
     # 处理每个行为类别
     for action in config['actions']:
         action_name = action['name']
-        action_id = action['action']
+        action_id = action['label']
         video_folder = action['video_folder']
         data_folder = action['data_folder']
 
