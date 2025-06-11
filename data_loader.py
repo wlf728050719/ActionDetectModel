@@ -26,9 +26,10 @@ def regular_collate_fn(batch):
 
 
 class SkeletonDataset(Dataset):
-    """基础骨骼数据集，负责数据加载"""
+    """基础骨骼数据集，支持single和slide两种加载模式"""
 
-    def __init__(self, data_paths, labels, max_frames):
+    def __init__(self, data_paths, labels, max_frames, mode='single',
+                 slide_stride=None, start_frame='first'):
         """
         骨骼动作识别基础数据集
 
@@ -36,30 +37,75 @@ class SkeletonDataset(Dataset):
             data_paths: CSV文件路径列表
             labels: 对应的标签列表
             max_frames: 每个样本的最大帧数 (不足的补零)
+            mode: 数据加载模式 ('single'或'slide')
+            slide_stride: 滑动窗口步长 (仅slide模式有效)
+            start_frame: 起始帧选择 ('first'或'first_nonzero')
         """
         self.data_paths = data_paths
         self.labels = labels
         self.max_frames = max_frames
+        self.mode = mode
+        self.slide_stride = slide_stride if slide_stride is not None else max_frames // 2
+        self.start_frame = start_frame
+
+        # 预计算每个文件的样本数量
+        self.sample_info = []  # 存储(文件索引, 起始帧)的列表
+
+        for i, path in enumerate(data_paths):
+            df = pd.read_csv(path)
+            total_frames = len(df)
+
+            if mode == 'single':
+                self.sample_info.append((i, 0))  # 只取前max_frames
+            else:  # slide模式
+                # 计算有效起始帧
+                if start_frame == 'first_nonzero':
+                    # 找到第一个非零帧(所有关键点的x或y都不全为零)
+                    first_nonzero = self._find_first_nonzero_frame(df)
+                    start = first_nonzero
+                else:  # 'first'
+                    start = 0
+
+                # 计算滑动窗口数量
+                n_samples = max(1, (total_frames - start - max_frames) // self.slide_stride + 1)
+
+                # 记录每个样本的信息
+                for sample_idx in range(n_samples):
+                    frame_start = start + sample_idx * self.slide_stride
+                    self.sample_info.append((i, frame_start))
+
+
+    def _find_first_nonzero_frame(self, df):
+        """找到第一个非零帧(所有关键点的x或y都不全为零)"""
+        x_cols = df.filter(regex='kp_.*_x').values
+        y_cols = df.filter(regex='kp_.*_y').values
+
+        for i in range(len(df)):
+            if not (np.all(x_cols[i] == 0) and np.all(y_cols[i] == 0)):
+                return i
+        return 0  # 如果全是零，则从0开始
 
     def __len__(self):
-        return len(self.data_paths)
+        return len(self.sample_info)  # 总样本数
 
     def __getitem__(self, idx):
-        data = self._load_single_sample(self.data_paths[idx])
-        label = self.labels[idx]
-        # 判断label是否与path对应
-        # print(label)
-        # print(self.data_paths[idx])
+        # 获取对应的文件和起始帧
+        file_idx, start_frame = self.sample_info[idx]
+        csv_path = self.data_paths[file_idx]
+        label = self.labels[file_idx]
+
+        # 加载数据
+        data = self._load_single_sample(csv_path, start_frame)
         return data, label
 
-    def _load_single_sample(self, csv_path):
+    def _load_single_sample(self, csv_path, start_frame=0):
         """加载单个样本的骨骼数据"""
         # 读取CSV文件
         df = pd.read_csv(csv_path)
 
         # 提取x,y坐标 (忽略置信度)
-        x_coords = df.filter(regex='kp_.*_x').values[:self.max_frames]
-        y_coords = df.filter(regex='kp_.*_y').values[:self.max_frames]
+        x_coords = df.filter(regex='kp_.*_x').values[start_frame:start_frame + self.max_frames]
+        y_coords = df.filter(regex='kp_.*_y').values[start_frame:start_frame + self.max_frames]
 
         # 组合成形状为 [2, T, V] 的张量 (T=时间步, V=关键点)
         skeleton_data = np.stack([x_coords, y_coords], axis=0)  # [2, T, V]
@@ -90,7 +136,11 @@ class TripletSkeletonDataset(Dataset):
 
         # 创建标签到样本索引的映射
         self.label_to_indices = defaultdict(list)
-        for idx, label in enumerate(self.labels):
+
+        # 遍历所有样本，建立标签到索引的映射
+        for idx in range(len(base_dataset)):
+            # 获取样本标签
+            _, label = base_dataset[idx]
             self.label_to_indices[label].append(idx)
 
         # 获取所有类别列表
@@ -120,17 +170,23 @@ class TripletSkeletonDataset(Dataset):
         return (anchor_data, positive_data, negative_data), [anchor_label]
 
 
-def get_dataloader(config_path,max_frames,batch_size=32, shuffle=True, num_workers=4, test_size=0.2, random_state=42):
+def get_dataloader(config_path, max_frames, batch_size=32, shuffle=True,
+                   num_workers=4, test_size=0.2, random_state=42,
+                   mode='single', slide_stride=None, start_frame='first'):
     """
     获取三元组训练和验证数据加载器
 
     参数:
         config_path: config.json路径
+        max_frames: 每个样本的最大帧数
         batch_size: 批大小
         shuffle: 是否打乱数据
         num_workers: 数据加载线程数
         test_size: 验证集比例
         random_state: 随机种子
+        mode: 数据加载模式 ('single'或'slide')
+        slide_stride: 滑动窗口步长 (仅slide模式有效)
+        start_frame: 起始帧选择 ('first'或'first_nonzero')
     """
     with open(config_path) as f:
         config = json.load(f)
@@ -140,11 +196,11 @@ def get_dataloader(config_path,max_frames,batch_size=32, shuffle=True, num_worke
 
     # 收集所有CSV文件和对应标签
     for action in config['actions']:
-        label = action['label']  # 直接使用config中的label字段
+        label = action['label']
         data_folder = action['data_folder']
 
         if not os.path.exists(data_folder):
-            continue
+            raise FileNotFoundError(data_folder)
 
         for csv_file in os.listdir(data_folder):
             if csv_file.endswith('.csv'):
@@ -164,8 +220,14 @@ def get_dataloader(config_path,max_frames,batch_size=32, shuffle=True, num_worke
     )
 
     # 创建基础数据集
-    train_base_dataset = SkeletonDataset(train_paths, train_labels,max_frames)
-    val_base_dataset = SkeletonDataset(val_paths, val_labels,max_frames)
+    train_base_dataset = SkeletonDataset(
+        train_paths, train_labels, max_frames,
+        mode=mode, slide_stride=slide_stride, start_frame=start_frame
+    )
+    val_base_dataset = SkeletonDataset(
+        val_paths, val_labels, max_frames,
+        mode=mode, slide_stride=slide_stride, start_frame=start_frame
+    )
 
     # 创建三元组训练数据集
     train_dataset = TripletSkeletonDataset(train_base_dataset)
@@ -197,8 +259,23 @@ def get_dataloader(config_path,max_frames,batch_size=32, shuffle=True, num_worke
 
 
 if __name__ == "__main__":
-    num_classes, train_loader, val_loader = get_dataloader('config.json', 300)
+    # 测试single模式
+    # print("=== 测试single模式 ===")
+    # num_classes, train_loader, val_loader = get_dataloader(
+    #     'config.json',
+    #     max_frames=50,
+    #     mode='single'
+    # )
 
+    # 测试slide模式
+    print("\n=== 测试slide模式 ===")
+    num_classes, train_loader, val_loader = get_dataloader(
+        'config.json',
+        max_frames=50,
+        mode='slide',
+        slide_stride=25,  # 滑动步长为最大帧数的一半
+        start_frame='first_nonzero'  # 从第一个非零帧开始
+    )
     # 加载一组训练数据
     for batch_idx, ((anchors, positives, negatives), labels) in enumerate(train_loader):
         print(f"\n训练集 Batch {batch_idx}:")

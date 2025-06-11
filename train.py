@@ -167,33 +167,53 @@ def validate(model, loader, center_criterion, device, centers):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='STGCN Training with Triplet and Center Loss')
+    #配置
     parser.add_argument('--config_path', type=str, default='config.json', help='config file path')
+
+    #核心
     parser.add_argument('--max_frames', type=int, default=50,help='max number of frames')
-    parser.add_argument('--batch_size', type=int, default=64, help='batch size')
-    parser.add_argument('--epochs', type=int, default=8000, help='number of epochs')
-    parser.add_argument('--lr', type=float, default=0.001, help='learning rate')
     parser.add_argument('--embed_dim', type=int, default=1024, help='embedding dimension')
+    parser.add_argument('--data_load_mode', type=str, default='slide', help='data load mode,single or slide')
+    parser.add_argument('--slide_stride', type=int, default=25, help='slide stride')
+    parser.add_argument('--start_frame', type=str, default='first_nonzero', help='start frame,first or first_nonzero')
+
+    #损失相关
     parser.add_argument('--triplet_loss_margin', type=float, default=0.8, help='margin for triplet loss')
     parser.add_argument('--lambda_center_loss', type=float, default=0.001, help='weight for center loss')
     parser.add_argument('--lambda_triplet_loss', type=float, default=1.0, help='weight for triplet loss')
+
+    #骨骼结构定义
     parser.add_argument('--layout', type=str, default='yolopose',
                       help='layout of the dataset: openpose, ntu-rgb+d, ntu_edge, yolopose')
     parser.add_argument('--strategy', type=str, default='spatial',
                       help='strategy of training: uniform, distance, spatial')
+
+    #训练相关
+    parser.add_argument('--batch_size', type=int, default=64, help='batch size')
+    parser.add_argument('--epochs', type=int, default=400, help='number of epochs')
+    parser.add_argument('--lr', type=float, default=0.001, help='learning rate')
     parser.add_argument('--model_save_dir', type=str, default='./checkpoints', help='model save path')
+
     args = parser.parse_args()
 
     CONFIG_PATH = args.config_path
+
     MAX_FRAMES = args.max_frames
-    BATCH_SIZE = args.batch_size
-    EPOCHS = args.epochs
-    LR = args.lr
     EMBED_DIM = args.embed_dim
+    DATA_LOAD_MODE = args.data_load_mode
+    SLIDE_STRIDE = args.slide_stride
+    START_FRAME = args.start_frame
+
     TRIPLET_LOSS_MARGIN = args.triplet_loss_margin
     LAMBDA_CENTER_LOSS = args.lambda_center_loss
     LAMBDA_TRIPLET_LOSS = args.lambda_triplet_loss
+
     LAYOUT = args.layout
     STRATEGY = args.strategy
+
+    BATCH_SIZE = args.batch_size
+    EPOCHS = args.epochs
+    LR = args.lr
     MODEL_SAVE_DIR = args.model_save_dir+'/'+LAYOUT+'/'+ STRATEGY
     os.makedirs(MODEL_SAVE_DIR, exist_ok=True)
 
@@ -201,7 +221,8 @@ if __name__ == '__main__':
     print(f"Using device: {device}")
     print(f"Triplet Loss Margin: {TRIPLET_LOSS_MARGIN}, Center Loss Weight: {LAMBDA_CENTER_LOSS}, Triplet Weight: {LAMBDA_TRIPLET_LOSS}")
 
-    num_classes, train_loader, val_loader = get_dataloader(CONFIG_PATH, BATCH_SIZE,MAX_FRAMES)
+    num_classes, train_loader, val_loader = get_dataloader(config_path=CONFIG_PATH,max_frames=MAX_FRAMES,batch_size=BATCH_SIZE,
+                                                           mode=DATA_LOAD_MODE,slide_stride=SLIDE_STRIDE,start_frame=START_FRAME)
 
     in_channels = 2  # (x,y)坐标
     graph_args = {'layout': LAYOUT, 'strategy': STRATEGY}
